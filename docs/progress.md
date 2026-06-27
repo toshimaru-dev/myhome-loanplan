@@ -1,5 +1,84 @@
 # 実装進捗
 
+## Sprint 6: 物件メタデータ（URL・メモ・物件種別・アクセス）
+**ステータス:** 実装完了 - 評価待ち
+**実装日:** 2026-06-28
+
+### 実装内容
+- **`Property` 型へメタ4フィールドを追加（`src/lib/storage.ts`）**: `url: string` / `memo: string` / `buildingAge: 'new' | 'used' | null` / `walkMinutes: string`。すべて任意入力（空文字・未選択を許容）。ローン計算には一切干渉しない（`FormValues` とは別の物件直下フィールド）。
+- **`createProperty()` の初期値**: `url: ''`, `memo: ''`, `buildingAge: null`, `walkMinutes: ''` を追加。
+- **後方互換の正規化 `normalizeProperty()`**: `loadState()` と `normalizeState()` の物件マップ処理を共通化。Sprint 5 以前のメタフィールドを持たない物件データを読み込んでもデフォルト値で補完される。`buildingAge` は `'new'/'used'` 以外を `null` に丸め、`walkMinutes` は旧データが number 型でも数値文字列へ変換（後方互換）。
+- **メタデータ更新ハンドラ `handleMeta`（`src/App.tsx`）**: `FormValues` 専用の `handleChange` とは別経路で `Property` を直接更新。オフライン中（読み取り専用）と物件未選択時はガードして編集をブロック。`LoanForm` に `property={active}` `onMeta={handleMeta}` `disabled={offline}` を渡す。
+- **「物件情報」セクションを `LoanForm.tsx` に追加**: ローン計算用カード群の**上部**に配置。`SectionHeading`（`font-extrabold text-[13px] text-primary mb-[10px]`）で「物件情報」「ローン計算」の2グループに視覚的に区分。
+  - 物件URL: 地球儀アイコン（`Globe`）付きテキスト入力。URL 入力済み時はラベル横に外部リンクアイコン（`ExternalLink`）を表示し、別タブ（`target="_blank" rel="noopener noreferrer"`）で開ける。
+  - 新築/中古: 2択トグルボタン。選択中 `bg-primary text-white` / 未選択 `bg-toggle text-muted`。選択中タブの再クリックで未選択（`null`）へ戻せる。
+  - 駅徒歩: `inputMode="numeric"` の整数入力（数字以外を除去）、単位「分」。
+  - メモ: `<textarea rows={3}>` 複数行（改行保持）。指定クラス `bg-bg border-[1.5px] border-border rounded-field px-[13px] py-[12px] focus:border-primary font-rounded text-[15px] text-ink` 準拠。
+  - 全メタフィールドは `disabled` prop（オフライン時）で無効化。
+- **比較表 `CompareTable.tsx` にメタ行を追加**: 月々ハイライト行（thead）とローン計算データ行（tbody）の**間（上部）**に「物件種別」「駅徒歩」「物件URL（30文字短縮＋別タブリンク）」の3行を追加。各物件のメタ情報を横並び比較できる。URL セルはフル URL を `title` と `href` に保持しつつ表示を短縮。交互背景はメタ3行分のオフセット（`META_ROW_COUNT`）でデータ行まで連続。
+- **Firestore 同期**: `saveStateToFirestore` は `state.properties`（メタフィールド込みの Property 配列）をそのまま `shared/main` 直下に保存し、`subscribeToState` は `normalizeState` 経由で復元するため、スキーマ変更なしでメタ情報が共有・リアルタイム同期される。
+- **ユニットテスト**: `storage.test.ts` にメタデータ5ケースを追加（createProperty デフォルト・save/load 永続化・normalizeState 保持・旧データのデフォルト補完・不正値正規化）。**計53ケース全合格**（loanCalc 29 + storage 24）。
+
+### 自己評価
+
+| 基準 | スコア (1-5) | コメント |
+|------|-------------|---------|
+| 機能完全性 | 5 | Sprint 6 受け入れ基準を全て満たす。URL 入力/リンク・複数行メモ・新築中古トグル（未選択許容）・駅徒歩入力・比較表3行・共有同期・後方互換すべて実装。 |
+| コード品質 | 5 | 正規化を `normalizeProperty` で `loadState`/`normalizeState` 共通化。メタ更新を `handleMeta` で `handleChange` から分離。計算ロジックは無改変。 |
+| UI/UX | 4 | デザイントークン（color/radius/font/shadow）を踏襲し「物件情報」「ローン計算」を視覚区分。トグル選択色・URLアイコン・単位ラベルを整備。 |
+| エラーハンドリング | 5 | 空欄・未選択・不正 buildingAge・number 型 walkMinutes・空URL いずれもクラッシュせず '—' 表示／デフォルト補完。オフライン時は disabled + handleMeta ガードで二重防御。 |
+| 既存機能との統合 | 5 | 計算ロジック・複数物件管理・比較表・オフライン読み取り専用・5%ボタンは無改変で動作。既存48 + 新規5 = 53テスト全合格。回帰なし。 |
+| デザイン仕様適合 | 4 | 指定ヘッダー/トグル/textarea クラスを厳守。design.md にメタUIの規定はないため既存トークンで構成（下記乖離参照）。 |
+
+### spec.md 受け入れ基準への対応
+
+| 受け入れ基準 | 対応 |
+|---|---|
+| 物件URL を入力→保存・表示、リンクで別タブを開く | テキスト入力 + ラベル横/比較表の `<a target="_blank" rel="noopener noreferrer">` |
+| 複数行メモを保存・表示、改行保持 | `<textarea rows={3}>`、`memo: string` をそのまま保存（テストで `\n` 保持を確認） |
+| 新築/中古トグル切替・未選択も保持 | トグルボタン、再クリックで `null` 復帰、`buildingAge` を保存 |
+| 駅徒歩を整数入力・空欄でも破綻しない | numeric 入力（数字以外除去）、空文字は '—' 表示 |
+| 比較表に種別/徒歩/URL 行追加・URL もリンク | CompareTable に3行追加、URL セルは短縮表示 + 別タブリンク |
+| `shared/main` に保存・リロード/別端末で共有 | Property 配列に追記保存、normalizeState で復元。スキーマ変更なし |
+| メタ変更で計算結果が変化しない（非干渉） | メタは `Property` 直下、`toLoanInput`/`toInput` は `values` のみ参照。計算経路に未接続 |
+| 旧データ（メタなし）を読んでもクラッシュしない | `normalizeProperty` がデフォルト補完（テストで確認） |
+| Sprint 1〜5 全機能に回帰なし | 計算/物件管理/比較/オフライン/5%ボタン無改変、53テスト合格 |
+
+### 技術的な判断
+- **`walkMinutes` を number ではなく string 型で実装**: spec.md 実装ガイドは `walkMinutes?: number` を例示するが、本タスク指示（より具体的な実装ガイド）と既存の数値入力パターン（`CurrencyInput`/`SliderField` がすべて文字列で生入力を保持し、空文字＝未入力を表現）に合わせ `string` を採用。空欄表現が `undefined` より一貫し、表示・保存・正規化が単純化する。旧データの number 型は `normalizeWalkMinutes` で数値文字列へ変換し後方互換を確保。
+- **メタ更新を別ハンドラ `handleMeta` に分離**: `handleChange` は `FormValues`（計算入力）専用のため、計算への非干渉を構造的に保証する目的でメタ更新経路を完全分離した。
+- **既存「物件情報」カードのタイトルを「物件価格・諸経費」へ改称**: 新設のメタ「物件情報」セクションとカード見出しの名称衝突を避けるため、price/miscCost を含む既存カードを「物件価格・諸経費」へ改称し「ローン計算」グループ配下に配置（下記デザイン乖離参照）。
+- **新築/中古トグルの再クリックで未選択へ**: 「未選択状態の許容」を満たすため、選択中タブの再タップで `null` に戻せる仕様とした（一度選ぶと解除不能になる事故を防止）。
+- **比較表の交互背景オフセット**: メタ3行を追加したことでデータ行のゼブラ縞が連続するよう `(idx + META_ROW_COUNT) % 2` でオフセットし、視覚的連続性を維持。
+
+### デザイン仕様との乖離
+- **既存カード見出し「🏠 物件情報」→「🏠 物件価格・諸経費」へ改称**: design.md（画面1）は最初のカード見出しを「🏠 物件情報」と規定するが、Sprint 6 でメタデータ専用の「物件情報」セクションを新設するため名称が衝突する。価格・諸経費は金額（ローン計算）入力であり、メタ情報（URL/メモ/種別/アクセス）こそが本来の「物件情報」であるため、既存カードを「物件価格・諸経費」へ改称し、メタセクションに「物件情報」を割り当てた。emoji・カードスタイル・トークンは維持。
+- **メタUI（トグル/URL/textarea）のスタイル**: design.md にメタフィールドの規定がないため、本タスク指示のクラス指定と既存デザイントークン（`bg-bg`/`border-border`/`rounded-field`/`bg-toggle`/`bg-primary` 等）で構成した。
+
+### 既知の課題
+- 比較表の物件数が多い場合、URL 行は30文字短縮＋横スクロールで対応するが、極端に長い URL 列は引き続き横スクロール前提（既存比較表の方針を踏襲）。
+- メモは textarea の `resize-y` を許可。比較表にはメモ行を追加していない（spec.md の比較表要件は種別/徒歩/URL の3行のみ）。
+
+### Evaluator への引き渡し事項
+- **起動方法:**
+  ```bash
+  cd /Users/toshiki-kojima/my-project/myhome-loanplan
+  npm run dev
+  # → http://localhost:5173/
+  ```
+- **ビルド/テスト:** `npm run build`（型チェック + ビルド成功）/ `npm run test`（53ケース全合格）
+- **テスト対象URL:** http://localhost:5173/
+- **テストシナリオ:**
+  1. 入力タブで最上部「物件情報」セクションを確認。物件URLに `https://example.com` を入力 → ラベル横の外部リンクアイコンが出現 → クリックで別タブに該当URLが開くこと。
+  2. 「新築」をクリック → 緑背景に反転。もう一度クリック → 未選択（グレー）に戻る。「中古」を選択して保存されること。
+  3. 駅徒歩に `7` を入力（数字以外は弾かれる）。メモに複数行（改行を含む）を入力し、改行が保持されること。
+  4. これらメタ入力で右側の月々支払額・各種計算結果が**変化しないこと**（非干渉）。
+  5. 物件を2件以上にして「比較」タブへ。月々行の下に「物件種別」「駅徒歩」「物件URL」行が並び、URL がクリックで別タブに開くこと。
+  6. ブラウザをリロード → 入力したメタ情報が保持されること（`shared/main` 共有同期）。別ブラウザで開いても同じメタ情報が表示されること。
+  7. オフライン（DevTools で offline）にすると上部バナーが出て、物件情報フィールド（URL/トグル/徒歩/メモ）が編集できないこと。オンライン復帰で再び編集可能になること。
+
+---
+
 ## Sprint 4: クラウド同期（Firestore）+ 同期コード共有 + 入力補助
 **ステータス:** 実装完了 - 評価待ち
 **実装日:** 2026-06-27

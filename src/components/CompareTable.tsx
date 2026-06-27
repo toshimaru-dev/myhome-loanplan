@@ -35,9 +35,38 @@ function fmtYears(values: Property['values']): string {
   return n !== undefined && Number.isFinite(n) ? `${values.loanYears}年` : '—';
 }
 
+/** 物件種別（新築/中古/未選択）の表示文字列 */
+function fmtBuildingAge(p: Property): string {
+  if (p.buildingAge === 'new') return '新築';
+  if (p.buildingAge === 'used') return '中古';
+  return '—';
+}
+
+/** 駅徒歩分数の表示文字列 */
+function fmtWalk(p: Property): string {
+  const w = (p.walkMinutes ?? '').trim();
+  return w !== '' ? `${w}分` : '—';
+}
+
+/** URL を比較表向けに 30 文字へ短縮する（リンク自体はフル URL を保持） */
+function shortenUrl(url: string): string {
+  const u = url.trim();
+  if (u.length <= 30) return u;
+  return `${u.slice(0, 30)}…`;
+}
+
+/** 物件メタ情報の行数（データ行の交互背景オフセットに使用） */
+const META_ROW_COUNT = 3;
+
 type Entry = { property: Property; input: LoanInput; result: LoanResult };
 
 type RowDef = { label: string; getValue: (e: Entry) => string };
+
+/** 物件メタ情報のうち、単純なテキスト表示で済む行（URL は別途リンクで描画） */
+const META_TEXT_ROWS: { label: string; getValue: (p: Property) => string }[] = [
+  { label: '物件種別', getValue: fmtBuildingAge },
+  { label: '駅徒歩', getValue: fmtWalk },
+];
 
 const ROWS: RowDef[] = [
   { label: '物件価格', getValue: (e) => formatYen(e.input.price) },
@@ -147,10 +176,77 @@ export default function CompareTable({ properties }: CompareTableProps) {
           </tr>
         </thead>
         <tbody>
-          {ROWS.map((row, idx) => (
+          {/* 物件メタ情報（種別・駅徒歩） — ローン計算に非干渉。データ行の上部に配置 */}
+          {META_TEXT_ROWS.map((row, idx) => (
             <tr
               key={row.label}
               style={{ background: idx % 2 === 0 ? '#fff' : '#FAFBFA' }}
+            >
+              <td
+                className="font-rounded font-semibold text-[11px] text-faint px-[12px] py-[13px] text-left"
+                style={{ borderTop: '1px solid #F0F3EF' }}
+              >
+                {row.label}
+              </td>
+              {entries.map(({ property }) => (
+                <td
+                  key={property.id}
+                  className="font-rounded font-bold text-[13px] text-ink px-[8px] py-[13px] text-center"
+                  style={{
+                    borderLeft: '1px solid #F0F3EF',
+                    borderTop: '1px solid #F0F3EF',
+                  }}
+                >
+                  {row.getValue(property)}
+                </td>
+              ))}
+            </tr>
+          ))}
+
+          {/* 物件URL（短縮表示 + 別タブで開けるリンク） */}
+          <tr style={{ background: META_TEXT_ROWS.length % 2 === 0 ? '#fff' : '#FAFBFA' }}>
+            <td
+              className="font-rounded font-semibold text-[11px] text-faint px-[12px] py-[13px] text-left"
+              style={{ borderTop: '1px solid #F0F3EF' }}
+            >
+              物件URL
+            </td>
+            {entries.map(({ property }) => {
+              const url = (property.url ?? '').trim();
+              return (
+                <td
+                  key={property.id}
+                  className="font-rounded font-bold text-[13px] text-ink px-[8px] py-[13px] text-center"
+                  style={{
+                    borderLeft: '1px solid #F0F3EF',
+                    borderTop: '1px solid #F0F3EF',
+                  }}
+                >
+                  {url !== '' ? (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:text-primary-dark underline break-all"
+                      title={url}
+                    >
+                      {shortenUrl(url)}
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+
+          {/* ローン計算の各指標（メタ行の分だけ交互背景をオフセット） */}
+          {ROWS.map((row, idx) => (
+            <tr
+              key={row.label}
+              style={{
+                background: (idx + META_ROW_COUNT) % 2 === 0 ? '#fff' : '#FAFBFA',
+              }}
             >
               <td
                 className="font-rounded font-semibold text-[11px] text-faint px-[12px] py-[13px] text-left"

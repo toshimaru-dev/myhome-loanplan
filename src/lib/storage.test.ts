@@ -210,6 +210,76 @@ describe('normalizeState（Firestore データ正規化）', () => {
   });
 });
 
+describe('物件メタデータ（Sprint 6: url/memo/buildingAge/walkMinutes）', () => {
+  it('createProperty はメタフィールドをデフォルト値で初期化する', () => {
+    const p = createProperty('物件1');
+    expect(p.url).toBe('');
+    expect(p.memo).toBe('');
+    expect(p.buildingAge).toBeNull();
+    expect(p.walkMinutes).toBe('');
+  });
+
+  it('saveState/loadState でメタフィールドがそのまま永続化される', () => {
+    const p = createProperty('Aマンション');
+    p.url = 'https://example.com/bukken/1';
+    p.memo = '南向き\n日当たり良好';
+    p.buildingAge = 'used';
+    p.walkMinutes = '7';
+    saveState({ properties: [p], activeId: p.id });
+
+    const loaded = loadState();
+    expect(loaded.properties[0].url).toBe('https://example.com/bukken/1');
+    expect(loaded.properties[0].memo).toBe('南向き\n日当たり良好');
+    expect(loaded.properties[0].buildingAge).toBe('used');
+    expect(loaded.properties[0].walkMinutes).toBe('7');
+  });
+
+  it('normalizeState はメタフィールドを保持する', () => {
+    const p = createProperty('物件1');
+    p.url = 'https://example.com';
+    p.buildingAge = 'new';
+    p.walkMinutes = '12';
+    p.memo = 'メモ';
+    const result = normalizeState({ properties: [p], activeId: p.id });
+    expect(result!.properties[0].url).toBe('https://example.com');
+    expect(result!.properties[0].buildingAge).toBe('new');
+    expect(result!.properties[0].walkMinutes).toBe('12');
+    expect(result!.properties[0].memo).toBe('メモ');
+  });
+
+  it('メタフィールドを持たない旧データ（Sprint 5 以前）はデフォルト値で補完される', () => {
+    const result = normalizeState({
+      properties: [{ id: 'x', name: '旧物件', values: { price: '5000000' } }],
+      activeId: 'x',
+    });
+    const prop = result!.properties[0];
+    expect(prop.url).toBe('');
+    expect(prop.memo).toBe('');
+    expect(prop.buildingAge).toBeNull();
+    expect(prop.walkMinutes).toBe('');
+  });
+
+  it('不正な buildingAge / 数値型 walkMinutes を正規化する（後方互換）', () => {
+    const result = normalizeState({
+      properties: [
+        {
+          id: 'x',
+          name: '物件1',
+          values: { price: '5000000' },
+          buildingAge: 'invalid',
+          walkMinutes: 9,
+        },
+      ],
+      activeId: 'x',
+    });
+    const prop = result!.properties[0];
+    // 'new'/'used' 以外は null に丸める
+    expect(prop.buildingAge).toBeNull();
+    // number 型は数値文字列へ変換
+    expect(prop.walkMinutes).toBe('9');
+  });
+});
+
 describe('createInitialState', () => {
   it('物件1件・activeId 一致で初期化される', () => {
     const s = createInitialState();

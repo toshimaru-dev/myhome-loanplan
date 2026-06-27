@@ -18,6 +18,14 @@ export type Property = {
   name: string;
   /** 入力値（すべて文字列。空文字 = 未入力） */
   values: FormValues;
+  /** 物件情報ページの URL（空文字許容・ローン計算に非干渉）*/
+  url: string;
+  /** 自由記述メモ（複数行・空文字許容・ローン計算に非干渉）*/
+  memo: string;
+  /** 新築 / 中古 / 未選択（ローン計算に非干渉）*/
+  buildingAge: 'new' | 'used' | null;
+  /** 駅徒歩分数（整数の数値文字列・空文字許容・ローン計算に非干渉）*/
+  walkMinutes: string;
 };
 
 /** localStorage に保存する全体状態 */
@@ -75,6 +83,10 @@ export function createProperty(name: string): Property {
     id: createId(),
     name,
     values: { ...DEFAULT_VALUES },
+    url: '',
+    memo: '',
+    buildingAge: null,
+    walkMinutes: '',
   };
 }
 
@@ -116,6 +128,34 @@ function normalizeValues(values: Partial<FormValues> | undefined): FormValues {
   return { ...DEFAULT_VALUES, ...(values ?? {}) };
 }
 
+/** 駅徒歩分数を数値文字列へ正規化する（旧データが number 型の可能性にも対応）*/
+function normalizeWalkMinutes(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  return '';
+}
+
+/**
+ * 検証済み物件を、メタデータ（url/memo/buildingAge/walkMinutes）込みで
+ * 全キーが揃った Property に正規化する（後方互換・欠損補完）。
+ * Sprint 6 以前のデータ（メタフィールドなし）はデフォルト値で補完される。
+ */
+function normalizeProperty(p: Property): Property {
+  const obj = p as unknown as Record<string, unknown>;
+  return {
+    id: p.id,
+    name: p.name,
+    values: normalizeValues(p.values as Partial<FormValues>),
+    url: typeof obj.url === 'string' ? obj.url : '',
+    memo: typeof obj.memo === 'string' ? obj.memo : '',
+    buildingAge:
+      obj.buildingAge === 'new' || obj.buildingAge === 'used'
+        ? obj.buildingAge
+        : null,
+    walkMinutes: normalizeWalkMinutes(obj.walkMinutes),
+  };
+}
+
 /**
  * localStorage から状態を読み込む。
  * - 保存なし / 破損 / 空配列の場合はデフォルト1物件で初期化する。
@@ -141,11 +181,7 @@ export function loadState(): PersistState {
     const rawProps = Array.isArray(obj.properties) ? obj.properties : [];
     const properties: Property[] = rawProps
       .filter(isValidProperty)
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        values: normalizeValues(p.values as Partial<FormValues>),
-      }));
+      .map(normalizeProperty);
 
     if (properties.length === 0) {
       // 永続的に「全削除」を選んだ可能性もあるが、リロード時の初期体験を優先し
@@ -186,11 +222,7 @@ export function normalizeState(parsed: unknown): PersistState | null {
 
   const properties: Property[] = obj.properties
     .filter(isValidProperty)
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      values: normalizeValues(p.values as Partial<FormValues>),
-    }));
+    .map(normalizeProperty);
 
   if (properties.length === 0) {
     return { properties: [], activeId: null };

@@ -175,6 +175,22 @@ export default function App() {
     }));
   };
 
+  // 物件メタデータ（URL・メモ・新築中古・駅徒歩）の更新。
+  // FormValues 専用の handleChange とは別経路で Property を直接更新する。
+  // これらの値はローン計算には一切干渉しない。
+  const handleMeta = (
+    field: 'url' | 'memo' | 'buildingAge' | 'walkMinutes',
+    value: string | 'new' | 'used' | null
+  ) => {
+    if (offline || !active) return;
+    setState((prev) => ({
+      ...prev,
+      properties: prev.properties.map((p) =>
+        p.id === active.id ? { ...p, [field]: value } : p
+      ),
+    }));
+  };
+
   const handleRename = (name: string) => {
     if (offline || !active) return;
     setState((prev) => ({
@@ -363,7 +379,13 @@ export default function App() {
           ) : active ? (
             <div className="lg:grid lg:grid-cols-2 lg:gap-[24px] lg:items-start">
               <div className={offline ? 'opacity-60 pointer-events-none' : ''}>
-                <LoanForm values={active.values} onChange={handleChange} />
+                <LoanForm
+                  values={active.values}
+                  onChange={handleChange}
+                  property={active}
+                  onMeta={handleMeta}
+                  disabled={offline}
+                />
               </div>
               <div className="mt-[8px] lg:mt-0 lg:sticky lg:top-[80px]">
                 <ResultCard
