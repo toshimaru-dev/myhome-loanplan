@@ -1,3 +1,8 @@
 .aidesigner/*
 !.aidesigner/.gitkeep
 .playwright-mcp/
+node_modules/
+dist/
+*.tsbuildinfo
+firebase-debug.log
+.firebase/

@@ -1,0 +1,167 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  STORAGE_KEY,
+  DEFAULT_VALUES,
+  createId,
+  createProperty,
+  nextPropertyName,
+  createInitialState,
+  loadState,
+  saveState,
+  type Property,
+  type PersistState,
+} from './storage';
+
+/** メモリ上の localStorage モック */
+class MemoryStorage {
+  private map = new Map<string, string>();
+  getItem(key: string): string | null {
+    return this.map.has(key) ? (this.map.get(key) as string) : null;
+  }
+  setItem(key: string, value: string): void {
+    this.map.set(key, String(value));
+  }
+  removeItem(key: string): void {
+    this.map.delete(key);
+  }
+  clear(): void {
+    this.map.clear();
+  }
+  key(i: number): string | null {
+    return Array.from(this.map.keys())[i] ?? null;
+  }
+  get length(): number {
+    return this.map.size;
+  }
+}
+
+beforeEach(() => {
+  const mem = new MemoryStorage();
+  // window.localStorage / localStorage の両方を差し替える（テスト用にグローバルへ注入）
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.window = { localStorage: mem };
+  g.localStorage = mem;
+});
+
+describe('createId', () => {
+  it('一意なIDを返す', () => {
+    const a = createId();
+    const b = createId();
+    expect(a).not.toBe(b);
+    expect(typeof a).toBe('string');
+    expect(a.length).toBeGreaterThan(0);
+  });
+});
+
+describe('createProperty', () => {
+  it('指定名とデフォルト入力値を持つ物件を生成する', () => {
+    const p = createProperty('テスト物件');
+    expect(p.name).toBe('テスト物件');
+    expect(p.values).toEqual(DEFAULT_VALUES);
+    // values はコピーで、DEFAULT_VALUES と参照を共有しない
+    expect(p.values).not.toBe(DEFAULT_VALUES);
+    expect(p.id).toBeTruthy();
+  });
+});
+
+describe('nextPropertyName', () => {
+  it('空配列なら 物件1', () => {
+    expect(nextPropertyName([])).toBe('物件1');
+  });
+  it('既存最大番号 + 1 を返す', () => {
+    const props: Property[] = [
+      createProperty('物件1'),
+      createProperty('物件3'),
+    ];
+    expect(nextPropertyName(props)).toBe('物件4');
+  });
+  it('カスタム名のみなら 物件1', () => {
+    const props: Property[] = [createProperty('Aマンション')];
+    expect(nextPropertyName(props)).toBe('物件1');
+  });
+});
+
+describe('saveState / loadState', () => {
+  it('保存した状態をそのまま復元できる（永続化）', () => {
+    const p1 = createProperty('物件1');
+    p1.values = { ...DEFAULT_VALUES, price: '30000000' };
+    const p2 = createProperty('Aマンション');
+    p2.values = { ...DEFAULT_VALUES, price: '45000000' };
+    const state: PersistState = { properties: [p1, p2], activeId: p2.id };
+
+    saveState(state);
+    const loaded = loadState();
+
+    expect(loaded.properties).toHaveLength(2);
+    expect(loaded.properties[0].values.price).toBe('30000000');
+    expect(loaded.properties[1].name).toBe('Aマンション');
+    expect(loaded.properties[1].values.price).toBe('45000000');
+    expect(loaded.activeId).toBe(p2.id);
+  });
+
+  it('各物件の入力値が混ざらず独立して保持される', () => {
+    const p1 = createProperty('物件1');
+    p1.values = { ...DEFAULT_VALUES, price: '10000000', interestRate: '0.5' };
+    const p2 = createProperty('物件2');
+    p2.values = { ...DEFAULT_VALUES, price: '20000000', interestRate: '2.0' };
+    saveState({ properties: [p1, p2], activeId: p1.id });
+
+    const loaded = loadState();
+    expect(loaded.properties[0].values.price).toBe('10000000');
+    expect(loaded.properties[0].values.interestRate).toBe('0.5');
+    expect(loaded.properties[1].values.price).toBe('20000000');
+    expect(loaded.properties[1].values.interestRate).toBe('2.0');
+  });
+});
+
+describe('loadState フォールバック', () => {
+  it('保存なしならデフォルト1物件で初期化する', () => {
+    const loaded = loadState();
+    expect(loaded.properties).toHaveLength(1);
+    expect(loaded.properties[0].name).toBe('物件1');
+    expect(loaded.activeId).toBe(loaded.properties[0].id);
+  });
+
+  it('破損JSONならデフォルト1物件で初期化する', () => {
+    localStorage.setItem(STORAGE_KEY, '{invalid json');
+    const loaded = loadState();
+    expect(loaded.properties).toHaveLength(1);
+  });
+
+  it('activeId が存在しない物件を指していても先頭物件を選択する', () => {
+    const p1 = createProperty('物件1');
+    saveState({ properties: [p1], activeId: 'missing-id' });
+    const loaded = loadState();
+    expect(loaded.activeId).toBe(p1.id);
+  });
+
+  it('明示的に全物件削除（空配列）した状態は空のまま復元する', () => {
+    saveState({ properties: [], activeId: null });
+    const loaded = loadState();
+    expect(loaded.properties).toHaveLength(0);
+    expect(loaded.activeId).toBeNull();
+  });
+
+  it('欠損キーのある values をデフォルトで補完する', () => {
+    const raw = JSON.stringify({
+      properties: [{ id: 'x', name: '物件1', values: { price: '5000000' } }],
+      activeId: 'x',
+    });
+    localStorage.setItem(STORAGE_KEY, raw);
+    const loaded = loadState();
+    expect(loaded.properties[0].values.price).toBe('5000000');
+    // 欠損していた loanYears 等がデフォルトで補完される
+    expect(loaded.properties[0].values.loanYears).toBe(DEFAULT_VALUES.loanYears);
+    expect(loaded.properties[0].values.managementFee).toBe(
+      DEFAULT_VALUES.managementFee
+    );
+  });
+});
+
+describe('createInitialState', () => {
+  it('物件1件・activeId 一致で初期化される', () => {
+    const s = createInitialState();
+    expect(s.properties).toHaveLength(1);
+    expect(s.activeId).toBe(s.properties[0].id);
+  });
+});
