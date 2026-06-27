@@ -38,6 +38,16 @@ function Card({
 }
 
 export default function LoanForm({ values, onChange }: LoanFormProps) {
+  // 物件価格が未入力ならボタンを無効化（クラッシュ防止）
+  const priceEmpty = values.price.trim() === '';
+
+  const fillMiscCost5pct = () => {
+    const price = Number(values.price);
+    if (!Number.isFinite(price) || price <= 0) return;
+    // 物件価格 × 5%（端数は四捨五入し整数の円で格納）
+    onChange('miscCost', String(Math.round(price * 0.05)));
+  };
+
   return (
     <div>
       <Card icon="🏠" title="物件情報">
@@ -54,6 +64,18 @@ export default function LoanForm({ values, onChange }: LoanFormProps) {
           value={values.miscCost}
           onChange={(v) => onChange('miscCost', v)}
           placeholder="2,000,000"
+          action={
+            <button
+              type="button"
+              onClick={fillMiscCost5pct}
+              disabled={priceEmpty}
+              aria-label="物件価格の5%を諸経費に入力"
+              title="物件価格の5%を自動入力"
+              className="font-rounded font-bold text-[11px] px-[8px] py-[6px] rounded-[8px] bg-primary-light text-primary-dark hover:bg-primary hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary-light disabled:hover:text-primary-dark"
+            >
+              5%
+            </button>
+          }
         />
       </Card>
 

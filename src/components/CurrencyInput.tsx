@@ -7,6 +7,8 @@ interface CurrencyInputProps {
   placeholder?: string;
   /** 月額単位を表示する場合のサフィックス（例: "/月"） */
   unit?: string;
+  /** 入力欄の右側に表示する補助アクション（例: 「5%」自動入力ボタン） */
+  action?: React.ReactNode;
 }
 
 const formatter = new Intl.NumberFormat('ja-JP');
@@ -19,6 +21,7 @@ export default function CurrencyInput({
   onChange,
   placeholder = '0',
   unit,
+  action,
 }: CurrencyInputProps) {
   const display = value === '' ? '' : formatter.format(Number(value));
 
@@ -49,6 +52,7 @@ export default function CurrencyInput({
             {unit}
           </span>
         )}
+        {action && <div className="ml-[8px] shrink-0">{action}</div>}
       </div>
     </div>
   );

@@ -8,6 +8,7 @@ import {
   createInitialState,
   loadState,
   saveState,
+  normalizeState,
   type Property,
   type PersistState,
 } from './storage';
@@ -155,6 +156,57 @@ describe('loadState フォールバック', () => {
     expect(loaded.properties[0].values.managementFee).toBe(
       DEFAULT_VALUES.managementFee
     );
+  });
+});
+
+describe('normalizeState（Firestore データ正規化）', () => {
+  it('正常な state オブジェクトをそのまま正規化する', () => {
+    const p1 = createProperty('物件1');
+    p1.values = { ...DEFAULT_VALUES, price: '30000000' };
+    const result = normalizeState({ properties: [p1], activeId: p1.id });
+    expect(result).not.toBeNull();
+    expect(result!.properties).toHaveLength(1);
+    expect(result!.properties[0].values.price).toBe('30000000');
+    expect(result!.activeId).toBe(p1.id);
+  });
+
+  it('properties が配列でない不正データは null を返す', () => {
+    expect(normalizeState({ properties: 'oops', activeId: null })).toBeNull();
+    expect(normalizeState(null)).toBeNull();
+    expect(normalizeState(undefined)).toBeNull();
+    expect(normalizeState(42)).toBeNull();
+  });
+
+  it('空配列は明示的な空状態として返す', () => {
+    const result = normalizeState({ properties: [], activeId: null });
+    expect(result).toEqual({ properties: [], activeId: null });
+  });
+
+  it('存在しない activeId を指す場合は先頭物件を選択する', () => {
+    const p1 = createProperty('物件1');
+    const result = normalizeState({ properties: [p1], activeId: 'missing' });
+    expect(result!.activeId).toBe(p1.id);
+  });
+
+  it('欠損キーのある values をデフォルトで補完する', () => {
+    const result = normalizeState({
+      properties: [{ id: 'x', name: '物件1', values: { price: '5000000' } }],
+      activeId: 'x',
+    });
+    expect(result!.properties[0].values.price).toBe('5000000');
+    expect(result!.properties[0].values.loanYears).toBe(
+      DEFAULT_VALUES.loanYears
+    );
+  });
+
+  it('不正な物件要素を除外する', () => {
+    const valid = createProperty('物件1');
+    const result = normalizeState({
+      properties: [valid, { id: 123 }, null, 'bad'],
+      activeId: valid.id,
+    });
+    expect(result!.properties).toHaveLength(1);
+    expect(result!.properties[0].id).toBe(valid.id);
   });
 });
 

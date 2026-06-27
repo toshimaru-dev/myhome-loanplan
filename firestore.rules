@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Sprint 5: 全利用者が共有する単一ドキュメント shared/main
+    match /shared/{docId} {
+      allow read, write: if true;
+    }
+    // Sprint 4 互換（同期コード方式。Sprint 5 で未使用だが既存データ保護のため残置）
+    match /sessions/{sessionId} {
+      allow read, write: if true;
+    }
+  }
+}

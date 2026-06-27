@@ -172,6 +172,39 @@ export function loadState(): PersistState {
   }
 }
 
+/**
+ * 任意のパース済みオブジェクトを PersistState に正規化する。
+ * Firestore から取得した `state` フィールドの検証・補完にも再利用する。
+ * - properties キーが配列でない場合は null を返す（不正データ）。
+ * - 空配列は「明示的な空状態」として { properties: [], activeId: null } を返す。
+ * - activeId が物件一覧に存在しない場合は先頭物件を選択する。
+ */
+export function normalizeState(parsed: unknown): PersistState | null {
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const obj = parsed as Record<string, unknown>;
+  if (!Array.isArray(obj.properties)) return null;
+
+  const properties: Property[] = obj.properties
+    .filter(isValidProperty)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      values: normalizeValues(p.values as Partial<FormValues>),
+    }));
+
+  if (properties.length === 0) {
+    return { properties: [], activeId: null };
+  }
+
+  const activeIdRaw = typeof obj.activeId === 'string' ? obj.activeId : null;
+  const activeId =
+    activeIdRaw && properties.some((p) => p.id === activeIdRaw)
+      ? activeIdRaw
+      : properties[0].id;
+
+  return { properties, activeId };
+}
+
 /** 状態を localStorage に保存する（失敗しても例外を投げない） */
 export function saveState(state: PersistState): void {
   const store = getStore();
