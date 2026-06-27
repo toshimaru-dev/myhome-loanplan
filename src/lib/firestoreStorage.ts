@@ -12,7 +12,7 @@
  */
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
-import { normalizeState, type PersistState } from './storage';
+import { normalizeState, propertyNeedsMigration, type PersistState } from './storage';
 
 /** 全利用者が共有する固定ドキュメントのコレクション名・ドキュメントID */
 const SHARED_COLLECTION = 'shared';
@@ -25,12 +25,14 @@ function sharedDocRef() {
 
 /**
  * 共有ドキュメント `shared/main` の状態をリアルタイム購読する。
- * @param onState ドキュメントが存在し有効なら PersistState、無ければ null を受け取る
+ * @param onState ドキュメントが存在し有効なら PersistState と、Firestoreの生データに
+ *   Sprint 6 以降のフィールドが欠けていたかどうか（needsMigration）を受け取る。
+ *   needsMigration が true の場合、呼び出し側は正規化済みデータを Firestore に保存し直す。
  * @param onError 通信エラー時に呼ばれる（任意）
  * @returns 購読解除関数
  */
 export function subscribeToState(
-  onState: (state: PersistState | null) => void,
+  onState: (state: PersistState | null, needsMigration?: boolean) => void,
   onError?: (error: unknown) => void
 ): () => void {
   try {
@@ -42,9 +44,16 @@ export function subscribeToState(
           onState(null);
           return;
         }
+        const rawData = snap.data();
         // Sprint 5: フィールドはドキュメント直下の { properties, activeId }。
-        const normalized = normalizeState(snap.data());
-        onState(normalized);
+        const normalized = normalizeState(rawData);
+        // Sprint 6 以前のデータにはメタフィールド（url/memo/buildingAge/walkMinutes）が
+        // ない場合がある。欠けていればマイグレーションが必要。
+        const rawProps: unknown[] = Array.isArray(rawData?.properties)
+          ? rawData.properties
+          : [];
+        const needsMigration = rawProps.some(propertyNeedsMigration);
+        onState(normalized, needsMigration);
       },
       (err) => {
         // 通信エラーでもアプリは継続。呼び出し側へ通知のみ。

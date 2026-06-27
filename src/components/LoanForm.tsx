@@ -74,7 +74,7 @@ export default function LoanForm({
     onChange('miscCost', String(Math.round(price * 0.05)));
   };
 
-  const hasUrl = property.url.trim() !== '';
+  const hasUrl = (property.url ?? '').trim() !== '';
 
   return (
     <div>
@@ -107,7 +107,7 @@ export default function LoanForm({
               id="prop-url"
               type="text"
               inputMode="url"
-              value={property.url}
+              value={property.url ?? ''}
               disabled={disabled}
               placeholder="https://..."
               onChange={(e) => onMeta('url', e.target.value)}
@@ -126,7 +126,7 @@ export default function LoanForm({
               ['new', '新築'],
               ['used', '中古'],
             ] as const).map(([val, label]) => {
-              const selected = property.buildingAge === val;
+              const selected = (property.buildingAge ?? null) === val;
               return (
                 <button
                   key={val}
@@ -161,7 +161,7 @@ export default function LoanForm({
               id="prop-walk"
               type="text"
               inputMode="numeric"
-              value={property.walkMinutes}
+              value={property.walkMinutes ?? ''}
               disabled={disabled}
               placeholder="10"
               onChange={(e) =>
@@ -186,7 +186,7 @@ export default function LoanForm({
           <textarea
             id="prop-memo"
             rows={3}
-            value={property.memo}
+            value={property.memo ?? ''}
             disabled={disabled}
             placeholder="気になる点・周辺環境・内見メモなど"
             onChange={(e) => onMeta('memo', e.target.value)}

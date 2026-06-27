@@ -111,6 +111,21 @@ export function createInitialState(): PersistState {
   return { properties: [first], activeId: first.id };
 }
 
+/**
+ * Firestore の生データ（型保証なし）に Sprint 6 以降のフィールドが欠けているか確認する。
+ * 欠けている場合は保存し直してマイグレーションを完了させる必要がある。
+ */
+export function propertyNeedsMigration(raw: unknown): boolean {
+  if (typeof raw !== 'object' || raw === null) return false;
+  const obj = raw as Record<string, unknown>;
+  return (
+    obj.url === undefined ||
+    obj.memo === undefined ||
+    obj.buildingAge === undefined ||
+    obj.walkMinutes === undefined
+  );
+}
+
 /** 1物件分のデータ整合性を検証する */
 function isValidProperty(p: unknown): p is Property {
   if (typeof p !== 'object' || p === null) return false;

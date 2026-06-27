@@ -96,14 +96,22 @@ export default function App() {
     let first = true;
 
     const unsub = subscribeToState(
-      (remote) => {
+      (remote, needsMigration) => {
         if (first) {
           first = false;
           if (remote) {
             // 共有ドキュメントに既存データあり → それを採用
             applyingRemoteRef.current = true;
             setState(remote);
-            setSyncStatus('saved');
+            if (needsMigration) {
+              // Sprint 6 以前のデータにメタフィールドが欠けている → 正規化済みデータを保存し直す
+              setSyncStatus('saving');
+              saveStateToFirestore(remote)
+                .then(() => setSyncStatus('saved'))
+                .catch(() => setSyncStatus('offline'));
+            } else {
+              setSyncStatus('saved');
+            }
           } else {
             // shared/main 未作成（初回） → 初期1物件を書き込んで初期化
             const init = createInitialState();
