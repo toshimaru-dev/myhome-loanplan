@@ -53,12 +53,6 @@ export default function ResultCard({
   const hasBonus =
     result.bonusPayment !== null && (result.bonusPayment ?? 0) > 0;
 
-  // ボーナス月のお支払い = 通常月返済額 + ボーナス1回分 + 固定費
-  const bonusMonthTotal =
-    result.monthlyTotal !== null && result.bonusPayment !== null
-      ? result.monthlyTotal + result.bonusPayment
-      : null;
-
   return (
     <div>
       {/* 主役: グリーングラデーション結果カード */}
@@ -78,12 +72,30 @@ export default function ResultCard({
             {formatNumber(result.monthlyTotal)}
           </span>
         </div>
-        {hasBonus && bonusMonthTotal !== null && (
-          <span className="inline-block font-rounded font-bold text-[12px] text-white bg-white/20 px-[14px] py-[6px] rounded-pill">
-            ボーナス月は {formatYen(bonusMonthTotal)}
-          </span>
-        )}
+        <div className="font-rounded font-semibold text-[11px] text-white/60">
+          毎月の給与から支払う金額
+        </div>
       </div>
+
+      {/* ボーナス払い（月々と独立して表示） */}
+      {hasBonus && (
+        <div
+          className="flex items-center justify-between rounded-[16px] px-[20px] py-[16px] mt-[10px] shadow-card"
+          style={{ background: 'linear-gradient(135deg, #F59E0B22, #F59E0B11)', border: '1.5px solid #F59E0B44' }}
+        >
+          <div>
+            <div className="font-rounded font-bold text-[12px] text-amber-600 mb-[2px]">
+              ボーナス払い（年2回）
+            </div>
+            <div className="font-rounded font-semibold text-[11px] text-amber-500/80">
+              ボーナスから支払う金額
+            </div>
+          </div>
+          <div className="font-rounded font-extrabold text-[22px] text-amber-600">
+            {formatYen(result.bonusPayment)}
+          </div>
+        </div>
+      )}
 
       {/* 3指標カード */}
       <div className="flex gap-[10px] mt-[18px]">
@@ -125,10 +137,6 @@ export default function ResultCard({
           first
           label="通常月返済額"
           value={formatYen(result.monthlyPayment)}
-        />
-        <BreakdownRow
-          label="ボーナス払い（月額換算）"
-          value={formatYen(result.bonusMonthly)}
         />
         <BreakdownRow label="管理費" value={formatYen(input.managementFee)} />
         <BreakdownRow label="修繕積立費" value={formatYen(input.repairReserve)} />
