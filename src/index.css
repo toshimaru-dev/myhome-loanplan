@@ -20,6 +20,11 @@
     color: #19231e;
     -webkit-font-smoothing: antialiased;
   }
+
+  /* iOS Safari のフォーカス時自動ズームを防ぐ（font-size 16px 未満でズームが発生する） */
+  input, textarea, select {
+    font-size: 16px;
+  }
 }
 
 @layer components {
