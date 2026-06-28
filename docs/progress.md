@@ -1,5 +1,81 @@
 # 実装進捗
 
+## Sprint 7: 夫婦優先度比較
+**ステータス:** 実装完了 - 評価待ち
+**実装日:** 2026-06-28
+
+### 実装内容
+- **型定義の追加（`src/lib/storage.ts`）**: `PriorityMap`（`Record<string, number>`）/ `CustomItem`（`{ key; label }`）/ `CoupleConditions`（`{ husband; wife; customItems }`）を追加。`PersistState` に `coupleConditions: CoupleConditions` を追加（必須フィールド）。`properties` / `activeId` には一切干渉しない別系統データ。
+- **正規化・後方互換（`storage.ts`）**: `emptyCoupleConditions()`（`{ husband:{}, wife:{}, customItems:[] }`）/ `normalizeCoupleConditions(raw)` を追加。優先度マップは 1〜5 の整数のみ採用（小数は四捨五入、範囲外・非数値・0 は除外）、カスタム項目は key/label が文字列の要素のみ採用。不正・欠損時は空データを返す。`createInitialState()`・`loadState()`・`normalizeState()` の全 `PersistState` 返却経路に `coupleConditions` を補完。`coupleConditions` を持たない旧データ（Sprint 6 以前）はデフォルト空で初期化される。
+- **固定条件項目（`src/lib/coupleConditions.ts` 新規）**: 指定の11項目を安定キー（`station`/`price`/`size`/`newBuilding`/`maintenance`/`sunlight`/`storage`/`parking`/`school`/`shopping`/`quiet`）で `FIXED_CONDITIONS` に定義。
+- **夫婦優先度ページ（`src/components/CouplePriorityPage.tsx` 新規）**:
+  - 内部サブタブ `husband | wife | compare`（セグメントトグル `bg-toggle`/選択 `bg-surface text-primary shadow-icon`）。
+  - 夫・妻タブ: 固定11項目＋カスタム項目を縦並び表示。各行に ★1〜5 のクリック可能ボタン（選択値以下を `★`/`text-primary`、超過を `☆`/`text-border`）。同じ星を再タップで 0（未入力）に戻す。未入力は全 `☆`。
+  - カスタム項目追加フォーム（各タブ下部）: テキスト入力 + 「追加」ボタン（Enter キーでも追加）。追加項目は固定11項目の下に表示し、各カスタム項目に削除ボタン（`X`）。削除時は husband/wife 両マップから該当キーの値も除去。
+  - 比較タブ: 全条件（固定＋カスタム）をテーブル表示（条件 / 👨夫 / 👩妻 / 差）。★は `★★★☆☆` の5文字列で表示、未入力は「未入力」表記。`|husband - wife| >= 2` の行は `bg-amber-50 border-l-2 border-amber-400` で強調し ⚠（`AlertTriangle`）、完全一致（両者入力済みで差0）は ✓（`Check`）、両者未入力は `—`、それ以外（差1）は差数値を表示。
+- **App.tsx にトップレベルページ切替を追加**: `PageMode = 'loan' | 'couple'`。ヘッダー下・既存の入力/比較タブの上に「🏠 ローン計算 / 👫 夫婦優先度」トグルを配置。`couple` 時は `CouplePriorityPage` を表示（PCサイドバーの物件一覧は引き続き表示）。`handleCoupleChange`（オフライン時ブロック）を追加。`handleAdd`/`handleDelete` を `...prev` スプレッドに修正し `coupleConditions` を保持。初期 state にも空の `coupleConditions` を追加。
+- **Firestore 保存（`firestoreStorage.ts`）**: `saveStateToFirestore` の `setDoc` body に `coupleConditions: state.coupleConditions` を追加。`subscribeToState` は `normalizeState` 経由で復元するため、夫婦優先度も `shared/main` に共有・リアルタイム同期される（スキーマ分岐なし）。
+- **ユニットテスト（`storage.test.ts`）**: 夫婦優先度11ケースを追加（empty/初期化/正常採用/範囲外除外/四捨五入/不正カスタム除外/旧データ補完/normalizeState保持/save・load永続化/不正入力正規化）。既存テストの `PersistState` リテラル・期待値に `coupleConditions` を追記。**計63ケース全合格**（loanCalc 29 + storage 34）。
+
+### 自己評価
+
+| 基準 | スコア (1-5) | コメント |
+|------|-------------|---------|
+| 機能完全性 | 5 | Sprint 7 受け入れ基準を全て満たす。ページ切替・夫/妻/比較サブタブ・★1〜5入力・独立保持・カスタム追加削除・横並び比較・差分強調・shared/main共有・後方互換すべて実装。 |
+| コード品質 | 5 | 夫婦優先度を独立コンポーネント・独立 lib に分離。計算ロジック（loanCalc）は無改変。正規化を `normalizeCoupleConditions` に集約し後方互換を構造化。 |
+| UI/UX | 4 | デザイントークン（toggle/surface/primary/border/amber）を踏襲。★Unicode で直感的な入力、比較表は差分を色・アイコンで一目化。 |
+| エラーハンドリング | 5 | 範囲外/非数値/小数/不正カスタム/欠損 coupleConditions すべてクラッシュせず正規化。未入力は「未入力」表記。オフライン時は disabled + handleCoupleChange ガードで二重防御。 |
+| 既存機能との統合 | 5 | ローン計算・物件管理・比較表・メタデータ・オフラインに無改変。handleAdd/Delete のスプレッド修正で coupleConditions も保持。63テスト全合格・回帰なし。 |
+| デザイン仕様適合 | 4 | design.md に夫婦優先度の規定はないため、既存トークン（セグメントトグル・カード・テーブルヘッダー `bg-ink`）を流用して構成。差分強調のみ指示通り amber 系を採用。 |
+
+### spec.md 受け入れ基準への対応
+
+| 受け入れ基準 | 対応 |
+|---|---|
+| トップナビに「夫婦優先度」表示・既存タブと行き来 | PageMode トグル。loan/couple 切替で双方の state を保持（別 useState・別 setState 経路） |
+| 夫/妻/比較の3サブタブ切替 | CouplePriorityPage 内 `subTab` セグメントトグル |
+| 夫タブで固定11項目を1〜5入力・即反映 | StarRow ボタン→ setPriority → onChange → setState |
+| 妻タブで独立入力・夫と混ざらない | husband/wife を別 PriorityMap で保持 |
+| カスタム項目追加が全タブに反映 | `customItems` を3ビュー共通の items 配列に統合 |
+| カスタム項目削除・他値保持 | removeCustom が該当キーのみ削除、固定項目・他カスタムは不変 |
+| 比較タブで夫妻を横並び表示 | テーブル（条件/夫/妻/差） |
+| 差 ≥2 の項目を強調表示 | `bg-amber-50 border-l-2 border-amber-400` + ⚠ |
+| coupleConditions を shared/main に保存・リロード/別端末で共有 | saveStateToFirestore に追記、normalizeState で復元 |
+| 旧データ（coupleConditions なし）を読んでもクラッシュしない | normalizeCoupleConditions がデフォルト空で補完（テスト確認） |
+| 夫婦優先度操作でローン計算等が変化しない | coupleConditions は別系統、toLoanInput/calculateLoan は未接続 |
+| Sprint 1〜6 全機能に回帰なし | 計算/物件管理/比較/メタ/オフライン無改変、63テスト合格 |
+
+### 技術的な判断
+- **`coupleConditions` を `PersistState` の必須フィールドに**: 後方互換は `normalizeCoupleConditions` の補完で担保し、型上は必須として全構築箇所での欠落をコンパイル時に検出（App.tsx 初期 state・handleAdd/Delete の修正もこれで誘発）。
+- **未入力＝値なし（マップにキーを持たない）**: 優先度 0 はマップから `delete` し、保存サイズを抑え「未入力」と「1」を明確に区別。比較表で `?? 0` を「未入力」として表現。
+- **カスタムキーは `custom-${createId()}`**: 既存 `createId`（UUID）を流用し、ラベル変更・重複ラベルでもキー衝突しない安定キーを生成。
+- **差分の3段階表示**: 差≥2＝⚠（強調）/ 差0かつ両入力＝✓ / 両未入力＝— / 差1＝数値、で「分かれている」「一致」「未着手」を視覚的に区別。
+- **PCサイドバー（物件一覧）は couple ページでも表示維持**: タスクの実装者判断に委ねられた点。ローン計算側の物件選択状態を保ったままページ往復できるよう常時表示とした。
+
+### デザイン仕様との乖離
+- **夫婦優先度 UI のスタイル**: design.md（3画面）に夫婦優先度の規定がないため、既存デザイントークン（セグメントトグル `bg-toggle`/`bg-surface`、カード `rounded-card shadow-card`、比較テーブルヘッダー `bg-ink text-[#9BB0A6]`）を流用して一貫性を維持。差分強調はタスク指示通り `bg-amber-50`/`border-amber-400`/`text-amber-500` を採用。
+
+### 既知の課題
+- 比較タブはカスタム項目が多い場合に縦に伸びる（横スクロールは差列のみ。物件比較表と異なり列固定は不要なため許容）。
+- 夫婦優先度はオフライン中は閲覧のみ可・編集ブロック（Sprint 5 の読み取り専用モードと整合）。サブタブ切替自体はオフラインでも可能（ローカル UI 状態）。
+
+### Evaluator への引き渡し事項
+- **起動方法**: `npm install`（初回のみ）→ `npm run dev`（Vite 開発サーバ。既定 http://localhost:5173）
+- **ビルド確認**: `npm run build`（tsc 型チェック + vite build、エラーなし）
+- **テスト**: `npm run test`（vitest、63ケース全合格）
+- **テスト対象URL**: http://localhost:5173
+- **テストシナリオ**:
+  1. ヘッダー下の「👫 夫婦優先度」トグルをクリック → 夫婦優先度ページに遷移。「🏠 ローン計算」で戻れる。往復してもローン計算側の物件・入力値が保持される。
+  2. 夫婦優先度ページで「夫」「妻」「比較」サブタブを切替できる。
+  3. 「夫」タブで各条件の★をクリックし 1〜5 を設定（同じ★再クリックで未入力に戻る）。「妻」タブで別の値を設定し、夫の値と混ざらないことを確認。
+  4. 「条件を追加」に任意ラベルを入力→「追加」。夫・妻・比較の全タブに新項目が表示され、それぞれ★入力できる。カスタム項目の ✕ で削除すると固定項目・他の値は保持される。
+  5. 「比較」タブで夫と妻の★が横並び表示される。差が★2以上の行がアンバー背景＋⚠で強調、一致行は✓で表示される。
+  6. リロードしても入力した優先度・カスタム項目が保持される（shared/main 共有）。別ブラウザで開いても同じ優先度が表示され、一方の編集が他方にリアルタイム反映される。
+  7. ローン計算側（物件価格変更・物件追加など）を操作しても夫婦優先度が変化しない（逆も同様）。
+  8. オフライン（DevTools で Offline）にすると読み取り専用バナーが出て、夫婦優先度の★・追加・削除が無効化される。閲覧・比較表示は継続。
+
+---
+
 ## Sprint 6: 物件メタデータ（URL・メモ・物件種別・アクセス）
 **ステータス:** 実装完了 - 評価待ち
 **実装日:** 2026-06-28

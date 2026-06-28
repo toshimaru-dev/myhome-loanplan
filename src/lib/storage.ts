@@ -28,11 +28,32 @@ export type Property = {
   walkMinutes: string;
 };
 
-/** localStorage に保存する全体状態 */
+/** 条件キー → 優先度（1〜5）のマップ（Sprint 7: 夫婦優先度）*/
+export type PriorityMap = Record<string, number>;
+
+/** カスタム追加条件の定義（Sprint 7）*/
+export type CustomItem = { key: string; label: string };
+
+/**
+ * 夫婦優先度データ（Sprint 7）。
+ * ローン計算・物件データ（properties/activeId）には一切干渉しない別系統データ。
+ */
+export type CoupleConditions = {
+  /** 夫の優先度（条件キー → 1〜5） */
+  husband: PriorityMap;
+  /** 妻の優先度（条件キー → 1〜5） */
+  wife: PriorityMap;
+  /** カスタム追加項目の定義 */
+  customItems: CustomItem[];
+};
+
+/** localStorage / Firestore に保存する全体状態 */
 export type PersistState = {
   properties: Property[];
   /** 選択中物件ID（全物件削除時は null） */
   activeId: string | null;
+  /** 夫婦優先度（Sprint 7・別系統データ） */
+  coupleConditions: CoupleConditions;
 };
 
 export const STORAGE_KEY = 'myhome-loanplan-properties';
@@ -105,10 +126,61 @@ function getStore(): Storage | null {
   return null;
 }
 
+/** 空（未入力）の夫婦優先度データを返す */
+export function emptyCoupleConditions(): CoupleConditions {
+  return { husband: {}, wife: {}, customItems: [] };
+}
+
 /** デフォルト1物件で初期化した状態を返す */
 export function createInitialState(): PersistState {
   const first = createProperty('物件1');
-  return { properties: [first], activeId: first.id };
+  return {
+    properties: [first],
+    activeId: first.id,
+    coupleConditions: emptyCoupleConditions(),
+  };
+}
+
+/** 優先度マップを正規化する（値は 1〜5 の整数のみ採用、それ以外は除外） */
+function normalizePriorityMap(raw: unknown): PriorityMap {
+  if (typeof raw !== 'object' || raw === null) return {};
+  const out: PriorityMap = {};
+  for (const [key, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      const n = Math.round(v);
+      if (n >= 1 && n <= 5) out[key] = n;
+    }
+  }
+  return out;
+}
+
+/** カスタム項目配列を正規化する（key/label が文字列の要素のみ採用） */
+function normalizeCustomItems(raw: unknown): CustomItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CustomItem[] = [];
+  for (const it of raw) {
+    if (typeof it === 'object' && it !== null) {
+      const o = it as Record<string, unknown>;
+      if (typeof o.key === 'string' && typeof o.label === 'string') {
+        out.push({ key: o.key, label: o.label });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 夫婦優先度データを正規化する（Sprint 7・後方互換）。
+ * 不正・欠損なら全項目未入力相当の空データ `{ husband:{}, wife:{}, customItems:[] }` を返す。
+ */
+export function normalizeCoupleConditions(raw: unknown): CoupleConditions {
+  if (typeof raw !== 'object' || raw === null) return emptyCoupleConditions();
+  const obj = raw as Record<string, unknown>;
+  return {
+    husband: normalizePriorityMap(obj.husband),
+    wife: normalizePriorityMap(obj.wife),
+    customItems: normalizeCustomItems(obj.customItems),
+  };
 }
 
 /**
@@ -206,7 +278,11 @@ export function loadState(): PersistState {
         Array.isArray(obj.properties) &&
         obj.properties.length === 0;
       if (explicitlyEmpty) {
-        return { properties: [], activeId: null };
+        return {
+          properties: [],
+          activeId: null,
+          coupleConditions: normalizeCoupleConditions(obj.coupleConditions),
+        };
       }
       return createInitialState();
     }
@@ -217,7 +293,11 @@ export function loadState(): PersistState {
         ? activeIdRaw
         : properties[0].id;
 
-    return { properties, activeId };
+    return {
+      properties,
+      activeId,
+      coupleConditions: normalizeCoupleConditions(obj.coupleConditions),
+    };
   } catch {
     return createInitialState();
   }
@@ -240,7 +320,11 @@ export function normalizeState(parsed: unknown): PersistState | null {
     .map(normalizeProperty);
 
   if (properties.length === 0) {
-    return { properties: [], activeId: null };
+    return {
+      properties: [],
+      activeId: null,
+      coupleConditions: normalizeCoupleConditions(obj.coupleConditions),
+    };
   }
 
   const activeIdRaw = typeof obj.activeId === 'string' ? obj.activeId : null;
@@ -249,7 +333,11 @@ export function normalizeState(parsed: unknown): PersistState | null {
       ? activeIdRaw
       : properties[0].id;
 
-  return { properties, activeId };
+  return {
+    properties,
+    activeId,
+    coupleConditions: normalizeCoupleConditions(obj.coupleConditions),
+  };
 }
 
 /** 状態を localStorage に保存する（失敗しても例外を投げない） */

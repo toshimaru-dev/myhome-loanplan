@@ -9,6 +9,8 @@ import {
   loadState,
   saveState,
   normalizeState,
+  normalizeCoupleConditions,
+  emptyCoupleConditions,
   type Property,
   type PersistState,
 } from './storage';
@@ -88,7 +90,11 @@ describe('saveState / loadState', () => {
     p1.values = { ...DEFAULT_VALUES, price: '30000000' };
     const p2 = createProperty('Aマンション');
     p2.values = { ...DEFAULT_VALUES, price: '45000000' };
-    const state: PersistState = { properties: [p1, p2], activeId: p2.id };
+    const state: PersistState = {
+      properties: [p1, p2],
+      activeId: p2.id,
+      coupleConditions: emptyCoupleConditions(),
+    };
 
     saveState(state);
     const loaded = loadState();
@@ -105,7 +111,11 @@ describe('saveState / loadState', () => {
     p1.values = { ...DEFAULT_VALUES, price: '10000000', interestRate: '0.5' };
     const p2 = createProperty('物件2');
     p2.values = { ...DEFAULT_VALUES, price: '20000000', interestRate: '2.0' };
-    saveState({ properties: [p1, p2], activeId: p1.id });
+    saveState({
+      properties: [p1, p2],
+      activeId: p1.id,
+      coupleConditions: emptyCoupleConditions(),
+    });
 
     const loaded = loadState();
     expect(loaded.properties[0].values.price).toBe('10000000');
@@ -131,13 +141,21 @@ describe('loadState フォールバック', () => {
 
   it('activeId が存在しない物件を指していても先頭物件を選択する', () => {
     const p1 = createProperty('物件1');
-    saveState({ properties: [p1], activeId: 'missing-id' });
+    saveState({
+      properties: [p1],
+      activeId: 'missing-id',
+      coupleConditions: emptyCoupleConditions(),
+    });
     const loaded = loadState();
     expect(loaded.activeId).toBe(p1.id);
   });
 
   it('明示的に全物件削除（空配列）した状態は空のまま復元する', () => {
-    saveState({ properties: [], activeId: null });
+    saveState({
+      properties: [],
+      activeId: null,
+      coupleConditions: emptyCoupleConditions(),
+    });
     const loaded = loadState();
     expect(loaded.properties).toHaveLength(0);
     expect(loaded.activeId).toBeNull();
@@ -179,7 +197,11 @@ describe('normalizeState（Firestore データ正規化）', () => {
 
   it('空配列は明示的な空状態として返す', () => {
     const result = normalizeState({ properties: [], activeId: null });
-    expect(result).toEqual({ properties: [], activeId: null });
+    expect(result).toEqual({
+      properties: [],
+      activeId: null,
+      coupleConditions: emptyCoupleConditions(),
+    });
   });
 
   it('存在しない activeId を指す場合は先頭物件を選択する', () => {
@@ -225,7 +247,11 @@ describe('物件メタデータ（Sprint 6: url/memo/buildingAge/walkMinutes）'
     p.memo = '南向き\n日当たり良好';
     p.buildingAge = 'used';
     p.walkMinutes = '7';
-    saveState({ properties: [p], activeId: p.id });
+    saveState({
+      properties: [p],
+      activeId: p.id,
+      coupleConditions: emptyCoupleConditions(),
+    });
 
     const loaded = loadState();
     expect(loaded.properties[0].url).toBe('https://example.com/bukken/1');
@@ -277,6 +303,125 @@ describe('物件メタデータ（Sprint 6: url/memo/buildingAge/walkMinutes）'
     expect(prop.buildingAge).toBeNull();
     // number 型は数値文字列へ変換
     expect(prop.walkMinutes).toBe('9');
+  });
+});
+
+describe('夫婦優先度（Sprint 7: coupleConditions）', () => {
+  it('emptyCoupleConditions は全項目未入力の空データを返す', () => {
+    expect(emptyCoupleConditions()).toEqual({
+      husband: {},
+      wife: {},
+      customItems: [],
+    });
+  });
+
+  it('createInitialState に空の coupleConditions が含まれる', () => {
+    const s = createInitialState();
+    expect(s.coupleConditions).toEqual({
+      husband: {},
+      wife: {},
+      customItems: [],
+    });
+  });
+
+  it('normalizeCoupleConditions は正常データをそのまま採用する', () => {
+    const raw = {
+      husband: { station: 5, price: 3 },
+      wife: { station: 2 },
+      customItems: [{ key: 'custom-1', label: 'ペット可' }],
+    };
+    const result = normalizeCoupleConditions(raw);
+    expect(result.husband.station).toBe(5);
+    expect(result.husband.price).toBe(3);
+    expect(result.wife.station).toBe(2);
+    expect(result.customItems).toEqual([{ key: 'custom-1', label: 'ペット可' }]);
+  });
+
+  it('範囲外・非数値の優先度値を除外する', () => {
+    const result = normalizeCoupleConditions({
+      husband: { a: 0, b: 6, c: -1, d: 3, e: 'x' },
+      wife: {},
+      customItems: [],
+    });
+    // 1〜5 の整数のみ採用
+    expect(result.husband).toEqual({ d: 3 });
+  });
+
+  it('小数の優先度値は四捨五入する', () => {
+    const result = normalizeCoupleConditions({
+      husband: { a: 4.4 },
+      wife: { a: 2.6 },
+      customItems: [],
+    });
+    expect(result.husband.a).toBe(4);
+    expect(result.wife.a).toBe(3);
+  });
+
+  it('不正なカスタム項目を除外する', () => {
+    const result = normalizeCoupleConditions({
+      husband: {},
+      wife: {},
+      customItems: [
+        { key: 'ok', label: '採用' },
+        { key: 123, label: '不正キー' },
+        { label: 'キー欠損' },
+        null,
+        'bad',
+      ],
+    });
+    expect(result.customItems).toEqual([{ key: 'ok', label: '採用' }]);
+  });
+
+  it('coupleConditions を持たない旧データはデフォルト（空）で補完される', () => {
+    const result = normalizeState({
+      properties: [{ id: 'x', name: '物件1', values: { price: '5000000' } }],
+      activeId: 'x',
+    });
+    expect(result!.coupleConditions).toEqual({
+      husband: {},
+      wife: {},
+      customItems: [],
+    });
+  });
+
+  it('normalizeState は coupleConditions を保持する', () => {
+    const p = createProperty('物件1');
+    const result = normalizeState({
+      properties: [p],
+      activeId: p.id,
+      coupleConditions: {
+        husband: { station: 5 },
+        wife: { station: 1 },
+        customItems: [{ key: 'c1', label: '眺望' }],
+      },
+    });
+    expect(result!.coupleConditions.husband.station).toBe(5);
+    expect(result!.coupleConditions.wife.station).toBe(1);
+    expect(result!.coupleConditions.customItems[0].label).toBe('眺望');
+  });
+
+  it('saveState/loadState で coupleConditions が永続化される', () => {
+    const p = createProperty('物件1');
+    saveState({
+      properties: [p],
+      activeId: p.id,
+      coupleConditions: {
+        husband: { price: 4 },
+        wife: { price: 2 },
+        customItems: [{ key: 'c1', label: '庭' }],
+      },
+    });
+    const loaded = loadState();
+    expect(loaded.coupleConditions.husband.price).toBe(4);
+    expect(loaded.coupleConditions.wife.price).toBe(2);
+    expect(loaded.coupleConditions.customItems[0].label).toBe('庭');
+  });
+
+  it('不正な coupleConditions は空データに正規化される', () => {
+    expect(normalizeCoupleConditions(null)).toEqual(emptyCoupleConditions());
+    expect(normalizeCoupleConditions(undefined)).toEqual(emptyCoupleConditions());
+    expect(normalizeCoupleConditions(42)).toEqual(emptyCoupleConditions());
+    expect(normalizeCoupleConditions({ husband: 'oops' }).husband).toEqual({});
   });
 });
 

@@ -78,6 +78,7 @@ export async function saveStateToFirestore(state: PersistState): Promise<void> {
   await setDoc(ref, {
     properties: state.properties,
     activeId: state.activeId,
+    coupleConditions: state.coupleConditions,
     updatedAt: Date.now(),
   });
 }

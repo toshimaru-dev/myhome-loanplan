@@ -4,16 +4,20 @@ import LoanForm, { type FormValues } from './components/LoanForm';
 import ResultCard from './components/ResultCard';
 import PropertyNav from './components/PropertyNav';
 import CompareTable from './components/CompareTable';
+import CouplePriorityPage from './components/CouplePriorityPage';
 import { calculateLoan, parseNumberInput, type LoanInput } from './lib/loanCalc';
 import {
   createInitialState,
   createProperty,
   nextPropertyName,
+  emptyCoupleConditions,
   type PersistState,
+  type CoupleConditions,
 } from './lib/storage';
 import { subscribeToState, saveStateToFirestore } from './lib/firestoreStorage';
 
 type ViewMode = 'edit' | 'compare';
+type PageMode = 'loan' | 'couple';
 type SyncStatus = 'connecting' | 'saving' | 'saved' | 'offline';
 
 const STATUS_LABEL: Record<SyncStatus, string> = {
@@ -50,7 +54,11 @@ function getOnline(): boolean {
 
 export default function App() {
   // Sprint 5: ローカル永続化を廃止。初期 state は空。データ本体は shared/main（クラウド）を正とする。
-  const [state, setState] = useState<PersistState>({ properties: [], activeId: null });
+  const [state, setState] = useState<PersistState>({
+    properties: [],
+    activeId: null,
+    coupleConditions: emptyCoupleConditions(),
+  });
   // クラウド同期の状態表示
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('connecting');
   // オフライン（読み取り専用）かどうか
@@ -59,6 +67,8 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(false);
   // 表示モード: 入力フォーム / 物件比較（ローカル UI 状態・共有しない）
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
+  // トップレベルのページ: ローン計算 / 夫婦優先度（ローカル UI 状態・共有しない）
+  const [pageMode, setPageMode] = useState<PageMode>('loan');
 
   // --- 同期制御用 ref ---
   // 最新 state をクロージャに頼らず参照する（初回スナップショットでの初期化用）
@@ -213,7 +223,11 @@ export default function App() {
     if (offline) return;
     setState((prev) => {
       const prop = createProperty(nextPropertyName(prev.properties));
-      return { properties: [...prev.properties, prop], activeId: prop.id };
+      return {
+        ...prev,
+        properties: [...prev.properties, prop],
+        activeId: prop.id,
+      };
     });
     setPanelOpen(false);
   };
@@ -230,8 +244,15 @@ export default function App() {
       const remaining = prev.properties.filter((p) => p.id !== id);
       const nextActive =
         prev.activeId === id ? remaining[0]?.id ?? null : prev.activeId;
-      return { properties: remaining, activeId: nextActive };
+      return { ...prev, properties: remaining, activeId: nextActive };
     });
+  };
+
+  // 夫婦優先度の更新（Sprint 7・別系統データ）。
+  // オフライン中（読み取り専用）はブロックする。
+  const handleCoupleChange = (updated: CoupleConditions) => {
+    if (offline) return;
+    setState((prev) => ({ ...prev, coupleConditions: updated }));
   };
 
   return (
@@ -350,64 +371,109 @@ export default function App() {
           )}
         </header>
 
-        {/* 入力/比較 切り替えタブ（ローカル UI・オフラインでも切替可） */}
-        <div className="px-[18px] pb-[4px] max-w-[1100px] mx-auto">
+        {/* トップレベルのページ切り替え: ローン計算 / 夫婦優先度 */}
+        <div className="px-[18px] mb-[4px] max-w-[1100px] mx-auto">
           <div className="inline-flex bg-toggle rounded-[12px] p-[4px] gap-[4px]">
             <button
               type="button"
-              onClick={() => setViewMode('edit')}
-              className={`flex items-center gap-[6px] px-[14px] py-[8px] rounded-[9px] font-rounded font-bold text-[13px] transition-colors ${
-                viewMode === 'edit'
+              onClick={() => setPageMode('loan')}
+              aria-current={pageMode === 'loan' ? 'true' : undefined}
+              className={`flex items-center gap-[6px] px-[16px] py-[8px] rounded-[9px] font-rounded font-bold text-[13px] transition-colors ${
+                pageMode === 'loan'
                   ? 'bg-surface text-primary shadow-icon'
                   : 'text-muted hover:text-ink'
               }`}
             >
-              <SlidersHorizontal size={14} />
-              入力
+              <span aria-hidden>🏠</span>
+              ローン計算
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('compare')}
-              className={`flex items-center gap-[6px] px-[14px] py-[8px] rounded-[9px] font-rounded font-bold text-[13px] transition-colors ${
-                viewMode === 'compare'
+              onClick={() => setPageMode('couple')}
+              aria-current={pageMode === 'couple' ? 'true' : undefined}
+              className={`flex items-center gap-[6px] px-[16px] py-[8px] rounded-[9px] font-rounded font-bold text-[13px] transition-colors ${
+                pageMode === 'couple'
                   ? 'bg-surface text-primary shadow-icon'
                   : 'text-muted hover:text-ink'
               }`}
             >
-              <LayoutList size={14} />
-              比較
+              <span aria-hidden>👫</span>
+              夫婦優先度
             </button>
           </div>
         </div>
 
-        {/* メイン: モバイルは縦積み、PCは2カラム */}
-        <main className="px-[18px] pb-[40px] pt-[8px] max-w-[1100px] mx-auto">
-          {viewMode === 'compare' ? (
-            <CompareTable properties={properties} />
-          ) : active ? (
-            <div className="lg:grid lg:grid-cols-2 lg:gap-[24px] lg:items-start">
-              <div className={offline ? 'opacity-60 pointer-events-none' : ''}>
-                <LoanForm
-                  values={active.values}
-                  onChange={handleChange}
-                  property={active}
-                  onMeta={handleMeta}
-                  disabled={offline}
-                />
-              </div>
-              <div className="mt-[8px] lg:mt-0 lg:sticky lg:top-[80px]">
-                <ResultCard
-                  input={input}
-                  result={result}
-                  rateText={active.values.interestRate}
-                  yearsText={active.values.loanYears}
-                />
+        {pageMode === 'couple' ? (
+          /* 夫婦優先度ページ（別系統データ・ローン計算に非干渉） */
+          <main className="px-[18px] pb-[40px] pt-[4px] max-w-[1100px] mx-auto">
+            <CouplePriorityPage
+              conditions={state.coupleConditions}
+              onChange={handleCoupleChange}
+              disabled={offline}
+            />
+          </main>
+        ) : (
+          <>
+            {/* 入力/比較 切り替えタブ（ローカル UI・オフラインでも切替可） */}
+            <div className="px-[18px] pb-[4px] max-w-[1100px] mx-auto">
+              <div className="inline-flex bg-toggle rounded-[12px] p-[4px] gap-[4px]">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('edit')}
+                  className={`flex items-center gap-[6px] px-[14px] py-[8px] rounded-[9px] font-rounded font-bold text-[13px] transition-colors ${
+                    viewMode === 'edit'
+                      ? 'bg-surface text-primary shadow-icon'
+                      : 'text-muted hover:text-ink'
+                  }`}
+                >
+                  <SlidersHorizontal size={14} />
+                  入力
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('compare')}
+                  className={`flex items-center gap-[6px] px-[14px] py-[8px] rounded-[9px] font-rounded font-bold text-[13px] transition-colors ${
+                    viewMode === 'compare'
+                      ? 'bg-surface text-primary shadow-icon'
+                      : 'text-muted hover:text-ink'
+                  }`}
+                >
+                  <LayoutList size={14} />
+                  比較
+                </button>
               </div>
             </div>
-          ) : (
-            <EmptyState onAdd={handleAdd} disabled={offline} />
-          )}
-        </main>
+
+            {/* メイン: モバイルは縦積み、PCは2カラム */}
+            <main className="px-[18px] pb-[40px] pt-[8px] max-w-[1100px] mx-auto">
+              {viewMode === 'compare' ? (
+                <CompareTable properties={properties} />
+              ) : active ? (
+                <div className="lg:grid lg:grid-cols-2 lg:gap-[24px] lg:items-start">
+                  <div className={offline ? 'opacity-60 pointer-events-none' : ''}>
+                    <LoanForm
+                      values={active.values}
+                      onChange={handleChange}
+                      property={active}
+                      onMeta={handleMeta}
+                      disabled={offline}
+                    />
+                  </div>
+                  <div className="mt-[8px] lg:mt-0 lg:sticky lg:top-[80px]">
+                    <ResultCard
+                      input={input}
+                      result={result}
+                      rateText={active.values.interestRate}
+                      yearsText={active.values.loanYears}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <EmptyState onAdd={handleAdd} disabled={offline} />
+              )}
+            </main>
+          </>
+        )}
       </div>
     </div>
   );
